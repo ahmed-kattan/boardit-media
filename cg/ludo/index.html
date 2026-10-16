@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ludo</title>
+<!--
+  Boardit on CrazyGames (16 Oct 2026). This page is the "game" CrazyGames
+  hosts. It loads their SDK here, never inside Boardit, and frames the game
+  from embed.playboardit.com. The two talk by postMessage, each checking the
+  other's origin (lib/portal.ts is the other half). Built per game by
+  tools/portal/crazygames/build.mjs; docs/portal-ads-crazygames-2026-10-16.md.
+-->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f4efe6; }
+  @media (prefers-color-scheme: dark) { html, body { background: #1d1a16; } }
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+</style>
+<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+</head>
+<body>
+<iframe id="game" title="Ludo" allow="autoplay; clipboard-write; fullscreen"></iframe>
+<script>
+(function () {
+  var GAME = 'https://embed.playboardit.com';
+  var SLUG = 'ludo';
+  var CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{5}$/;
+  var frame = document.getElementById('game');
+  var sdk = null;
+  var started = false;
+  var queue = [];
+  var settings = { muteAudio: false, disableChat: false };
+  var inAd = false;
+
+  function codeOf(params) {
+    var c = params && params.code ? String(params.code).toUpperCase() : '';
+    return CODE.test(c) ? c : null;
+  }
+  function src(code) {
+    return GAME + (code ? '/join/' + code : '/embed/' + SLUG + '/play') + '?portal=crazygames';
+  }
+  function send(msg) {
+    msg.boardit = 1;
+    try { frame.contentWindow.postMessage(msg, GAME); } catch (e) { /* frame not there yet */ }
+  }
+  function sendSettings() {
+    send({ type: 'settings', muteAudio: !!settings.muteAudio || inAd, disableChat: !!settings.disableChat });
+  }
+  function safe(fn) { try { return fn(); } catch (e) { return undefined; } }
+
+  function handle(m) {
+    if (!sdk) { queue.push(m); return; }
+    var g = sdk.game;
+    if (m.type === 'ready') {
+      safe(function () { g.loadingStop(); });
+      sendSettings();
+    } else if (m.type === 'gameplay') {
+      safe(function () { if (m.on) g.gameplayStart(); else g.gameplayStop(); });
+    } else if (m.type === 'room') {
+      var code = codeOf(m);
+      if (!code) return;
+      safe(function () { g.updateRoom({ roomId: code, isJoinable: !!m.joinable, inviteParams: { code: code } }); });
+      Promise.resolve(safe(function () { return g.inviteLink({ code: code }); })).then(function (url) {
+        if (typeof url === 'string' && url) send({ type: 'invite', code: code, url: url });
+      });
+    } else if (m.type === 'left') {
+      safe(function () { g.leftRoom(); });
+    } else if (m.type === 'break') {
+      safe(function () {
+        sdk.ad.requestAd('midgame', {
+          adStarted: function () { inAd = true; sendSettings(); },
+          adFinished: function () { inAd = false; sendSettings(); },
+          adError: function () { inAd = false; sendSettings(); }
+        });
+      });
+    }
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== GAME || e.source !== frame.contentWindow) return;
+    var m = e.data;
+    if (!m || m.boardit !== 1 || typeof m.type !== 'string') return;
+    handle(m);
+  });
+
+  function start(ready) {
+    if (started) return;
+    started = true;
+    var code = null;
+    if (ready) {
+      sdk = ready;
+      var g = sdk.game;
+      safe(function () { g.loadingStart(); });
+      settings = safe(function () { return g.settings; }) || settings;
+      safe(function () { g.addSettingsChangeListener(function (s) { if (s) settings = s; sendSettings(); }); });
+      safe(function () { g.addJoinRoomListener(function (p) { var c = codeOf(p); if (c) frame.src = src(c); }); });
+      code = codeOf(safe(function () { return g.inviteParams; }));
+      var waiting = queue; queue = [];
+      waiting.forEach(handle);
+    }
+    frame.src = src(code);
+  }
+
+  // Blocked by an ad blocker, or slow: the game still loads, without the SDK.
+  var timer = setTimeout(function () { start(null); }, 5000);
+  var api = window.CrazyGames && window.CrazyGames.SDK;
+  if (!api) { clearTimeout(timer); start(null); return; }
+  Promise.resolve(safe(function () { return api.init(); })).then(function () {
+    clearTimeout(timer);
+    start(api.environment === 'disabled' ? null : api);
+  }, function () { clearTimeout(timer); start(null); });
+})();
+</script>
+</body>
+</html>
