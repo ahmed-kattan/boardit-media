@@ -97,6 +97,21 @@
       code = codeOf(safe(function () { return g.inviteParams; }));
       var waiting = queue; queue = [];
       waiting.forEach(handle);
+      // "Play with friends" on CrazyGames: open a table at once, under their CrazyGames name.
+      if (!code && safe(function () { return g.isInstantMultiplayer; }) === true) {
+        var opened = false;
+        var open = function (name) {
+          if (opened) return;
+          opened = true;
+          frame.src = src(null) + '&instant=1' + (name ? '&name=' + encodeURIComponent(name) : '');
+        };
+        setTimeout(function () { open(''); }, 2500);
+        Promise.resolve(safe(function () { return sdk.user.getUser(); })).then(
+          function (u) { open(u && u.username ? String(u.username).slice(0, 32) : ''); },
+          function () { open(''); }
+        );
+        return;
+      }
     }
     frame.src = src(code);
   }
