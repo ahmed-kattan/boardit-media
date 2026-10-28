@@ -24,6 +24,7 @@
 (function () {
   var GAME = 'https://embed.playboardit.com';
   var SLUG = 'draw-and-guess';
+  var BOTS = false === true;
   var CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{5}$/;
   var frame = document.getElementById('game');
   var sdk = null;
@@ -109,6 +110,21 @@
         Promise.resolve(safe(function () { return sdk.user.getUser(); })).then(
           function (u) { open(u && u.username ? String(u.username).slice(0, 32) : ''); },
           function () { open(''); }
+        );
+        return;
+      }
+      // An organic click: straight to a started table against a bot (E-04). Their name if it comes within 0.7 s.
+      if (!code && BOTS) {
+        var seated = false;
+        var seat = function (name) {
+          if (seated) return;
+          seated = true;
+          frame.src = src(null) + '&bots=1' + (name ? '&name=' + encodeURIComponent(name) : '');
+        };
+        setTimeout(function () { seat(''); }, 700);
+        Promise.resolve(safe(function () { return sdk.user.getUser(); })).then(
+          function (u) { seat(u && u.username ? String(u.username).slice(0, 32) : ''); },
+          function () { seat(''); }
         );
         return;
       }
